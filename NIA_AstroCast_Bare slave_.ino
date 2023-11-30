@@ -1,48 +1,43 @@
-#include "src/BattSense/INA219.h"
-#include "src/BattSense/SystemConfig.h"
+
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
-#include <TinyGPS.h>
 #include <Wire.h>
 
 #define DEBUG
 #define DEBUG_WATER_LEVEL
 #define DEBUG_BAT
 #define DEBUG_ACCEL
-#define DEBUG_GPS
-#define SLEEP_INTERRUPT
 
 #define WQ_MODBUS_EN PC4 // B5 // PA0
 #define MODBUS_LS_5V PC6
 #define MODBUS_LS_12V PB1
 #define WDT_DONE PC0
 /* Defining interrupt pin */
-#define INTERRUPT_PIN PC5    
-TwoWire i2cPort(ACSIP_SDA, ACSIP_SCL);
+#define INTERRUPT_PIN PC5  
 
-INA219 SolarSense(0X41);
-INA219 BatterySense(0X40);
-
-PowerMonitor Battery;
-PowerMonitor Solar;
+/*Variables for Data Transmission*/
+const int maxArraySize = 5;    
+float sensorData[maxArraySize];
+uint8_t movementCount = 0;
+uint16_t debounceTime = 30000;
 byte ModbusCommand[2][11] = {
     {0x01, 0x03, 0x00, 0x04, 0x00, 0x01, 0xc5, 0xcb}, // Get temperature and DO
     {0x01, 0x10, 0x20, 0x00, 0x00, 0x01, 0x02, 0x00, 0xFF, 0x07,
      0x95}}; // Set brush interval to 255 mins
 
 //#define DEBUG
-TinyGPS gps;
 Adafruit_MPU6050 mpu;
 HardwareSerial waterLevelData(PA3, PA2); // water level
-HardwareSerial gpsSensor(PD2, PC12);     // gps
 HardwareSerial Modbus(PC11, PC10);   // rain gauge
+HardwareSerial interCom(PD2, PC12);
 TwoWire _wire(PB7, PB6);                 // accelerometer
 
-
+int prevMillis = 0, prevMillis2;
 float totAccumulation;
 float currentAcc, RInt;
-uint16_t waitingTime;                                // window waiting time for on-motion event
 uint16_t waterLevel, waterLevelOffset = 0;
+
+uint8_t waterCriticalHighReadings = 0,waterCriticalLowReadings = 0;
 uint16_t waterHighThreshold           = 70,            // Water level sensor settings
          waterCriticalHighThreshold   = 100, 
          waterLowThreshold            = 50,
@@ -54,17 +49,12 @@ float battlevel;        // battery level
 bool solarCharging;
 volatile bool onMotion = false;
 
-float gpsLon, gpsLat;
-uint16_t gpsTransmissionHours, gpsWaitTime;
-uint16_t motionCooldownDelay;
-
 
 /* @brief ACSIP lmic pin map */
 
-void readGPS(bool alert);
 void initAccel();
 int readWaterLevel();
-void deviceWakeInit();
+void startupConfig();
 void readRain();
 
 int RAIN_GAUGE_BAUD_RATE = 9600; // default baudrate
@@ -104,28 +94,25 @@ void motionEvent(){
     Serial.println(F("[SYSTEM] Motion Interupt TRIGGERED"));
   #endif
   movementDetected = true;
-  onMotion = true;                 // Detach motion interrupt to give way to sensor telemetry readings
-
+  movementCount++;
+  prevMillis = millis();
+  detachInterrupt(INTERRUPT_PIN); 
   return;
   }
-void deviceWakeInit() {
+void startupConfig() {
   #ifdef DEBUG
     Serial.println();
     Serial.println(F("[SYSTEM] Initializing Device Configurations."));
   #endif // DEBUG
-
-
-  pinMode(PC1, OUTPUT);
-  digitalWrite(PC1, LOW);             // DIO (GPS loadswitch)
   pinMode(INTERRUPT_PIN, INPUT_PULLUP);
   Modbus.begin(RAIN_GAUGE_BAUD_RATE); // init with default
   delay(1000);
   readRain();
-   delay(1000);
+  delay(1000);
   initAccel();
   pinMode(INTERRUPT_PIN, INPUT_PULLUP);
-   attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), motionEvent, CHANGE);
-   delay(50);
+  attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), motionEvent, CHANGE);
+  delay(50);
   delay(1000);
 
   pinMode(WQ_MODBUS_EN, OUTPUT);
@@ -140,48 +127,7 @@ void deviceWakeInit() {
     Serial.println(F("[SYSTEM] Device Initialized."));
   #endif // DEBUG
 }
-void ChargeCurrent(byte current){
-       for(int x = 0; x < current; x++){
-         chargePulse();
-       }
-     };
 
-void chargePulse(){
- digitalWrite(CHARGER_CTRL, HIGH);
- delayMicroseconds(500);
- digitalWrite(CHARGER_CTRL, LOW);
- delayMicroseconds(500);
-}
-
-void readBatt() {
-  pinMode(CHARGER_CTRL, OUTPUT); 
-  digitalWrite(CHARGER_CTRL, LOW);
-  pinMode(CHARGER_STAT, INPUT);
-  if (!SolarSense.begin(&i2cPort)) {
-     Serial.println("Failed to find Solar Sensing chip");
-     //while (1) { delay(10); }
-  }
-  if (!BatterySense.begin(&i2cPort)) {
-     Serial.println("Failed to find Battery Sensing chip");
-     //while (1) { delay(10); }
-  }
-  /* Set maximum charge current to 935mA */
-  ChargeCurrent(_935MA);
-  Solar.voltage = SolarSense.getBusVoltage_V();
-  Solar.current = SolarSense.getShuntVoltage_mV() / RSHUNT;
-  Battery.voltage = BatterySense.getBusVoltage_V();
-  Battery.current = BatterySense.getShuntVoltage_mV() / RSHUNT;
-  ChargeCurrent(_935MA);
-  bool ChargingStatus = digitalRead(CHARGER_STAT);
-  Serial.println("\n - - - - - - - - - - - ");
-  Serial.println("Solar Voltage: " + String(Solar.voltage) + "V");
-  Serial.println("Solar Current: " + String(Solar.current) + "mA");
-  Serial.println("Battery Voltage: " + String(Battery.voltage) + "V");
-  Serial.println("Battery Current: " + String(Battery.current) + "mA");
-  Serial.println("Charging Status: " + String((ChargingStatus) ? "OFF" : "ON")); 
-  battlevel = Battery.voltage;
-  solarCharging = !ChargingStatus;
-}
 int readWaterLevel() {
   /* Begin ModBus Serial Communication */
   waterLevelData.begin(9600, SERIAL_8N1);
@@ -201,10 +147,8 @@ int readWaterLevel() {
     delay(10);
     digitalWrite(WQ_MODBUS_EN, LOW);
     delay(100);
-
     /* Capture incoming modbus response */
     if (!waterLevelData.available()) {
-
       waterLevel = 0;
       waterSensorFailures++;
       if (waterSensorFailures >= 5) {
@@ -244,21 +188,20 @@ int readWaterLevel() {
   int size = sizeof(waterReadings) / sizeof(waterReadings[0]);
   bubbleSort(waterReadings, size);             // Sort Water Level Readings
   waterLevel = getMedian(waterReadings, size); // Get the Median from the Readings
+  
   Serial.print("Water Level: ");
   Serial.println(waterLevel);
   /* Check Water Level */
   if (waterLevel <= waterCriticalLowThreshold) {
       Serial.println("Water Level Critically Low");
-  } else if (waterLevel <= waterLowThreshold) {
-      Serial.println("Water Level Low");
-  } else if (waterLevel <= waterHighThreshold) {
-      Serial.println("Water Level Normal");
-  } else if (waterLevel <= waterCriticalHighThreshold) {
-      Serial.println("Water Level High");
+      waterCriticalLowReadings++;
+  } 
+  else if (waterLevel >= waterCriticalHighThreshold) {
+      Serial.println("Water Level Criticaly High");
+      waterCriticalHighReadings++;
   } else {
-      Serial.println("Water Level Critically High");
+      Serial.println("Water Level normal");
   }
-  
   delay(100);
   waterLevelData.end();
 }
@@ -354,14 +297,12 @@ void decodeSerial() {
     if (message == "LensBad") { // not sufficient light
       mydata[5] = 8;
       keyword = true;
-
     }
     if (message == "EmSat") { // emitter is saturated
       mydata[5] = 9;
       keyword = true;
     }
   }
-
 }
 
 void readRain() {
@@ -387,88 +328,52 @@ void readRain() {
   Serial.println(RInt);
 }
 
+void sendDataArray() {
+  // Replace this function with your actual sensor reading code
+  sensorData[0] = waterLevel; //Water Level
+  sensorData[1] = waterCriticalHighReadings; //Water High Counter
+  sensorData[2] = waterCriticalLowReadings; //Water Low Counter
+  sensorData[3] = totAccumulation; //Rain Total Accumulation
+  sensorData[4] = movementCount; //Motion Total Interrupts
 
-void readGPS( ) {
-  digitalWrite(PA13, HIGH);                     // Turn on GPS Load Switch
-  delay(50);
-       
-    bool stopReading       = false,             // Set GPS checkpoints 
-         tried             = false,
-         newData           = false;
-    uint16_t tryWindowTime = (millis() / 1000) + gpsWaitTime;
-    tryWindowTime=(millis() / 1000)+0;   //30 seconds if debug mode
-        Serial.println(F("Waking up GPS!"));
-    gpsSensor.begin(9600);                      // Start GPS Serial Communication
-    delay(3000);
-    unsigned long chars;
-    unsigned short sentences, failed;
-    while (!stopReading) {
+  // Send the sensor data array as a string to the master
+  for (int i = 0; i < maxArraySize; i++) {
+    interCom.print(sensorData[i]);
 
-        if (millis() % 1000 == 0) {
-          Serial.print("Waiting for GPS Lock: ");
-          Serial.print(tryWindowTime - (millis() / 1000));
-          Serial.println("s");
-          delay(1);
-        }
-      if (gpsSensor.available()) {
-        while (gpsSensor.available()) {
-          char c = gpsSensor.read();                 // Read GPS serial data
-          if (gps.encode(c)) {
-            newData = true;
-          }
-        }
-        if (newData) {                               // Successful GPS Location Lock
-          unsigned long age;
-          long flat, flon;
-          gps.get_position(&flat, &flon);
-          gpsLat = flat / 100;
-          gpsLon = flon / 100;
-          stopReading = true;
-          break;
-        }
-      } 
-      else {                                         // Failed GPS Locking
-        if ((millis() / 1000) >= gpsWaitTime) {
-            Serial.println(F("[ERROR] Can\'t read GPS data"));
-          stopReading = true;
-        }
-        if (tried == true) {
-          stopReading = true;
-          break;
-        } 
-        else {
-          if (millis() / 1000 >= tryWindowTime) {    // Exceeded GPS Tries-for-Locking window
-            tried = true;
-            stopReading = true;
-              Serial.println(F("[ERROR] Can\'t lock GPS"));
-            break;
-          }
-        }
-      }
+    // Add a delimiter (comma) except for the last element
+    if (i < maxArraySize - 1) {
+      interCom.print(",");
     }
-      Serial.println(F("Sleeping GPS!"));
-  
-  gpsSensor.end();                                  // End GPS Serial Communication
-  delay(100);
-  digitalWrite(PA13, LOW);                          // Turn Off GPS
+  }
+  // End the transmission with a newline
+  interCom.println();
 }
-
 
 void setup() {
-
   Serial.begin(115200);
-  deviceWakeInit();
+  interCom.begin(9600); 
+  startupConfig();
 }
 
-
 void loop() {
-  readBatt();
-  Serial.println();
-  readGPS();
-  Serial.println();
+  if(movementDetected){
+     if((millis()-prevMillis)>=debounceTime){ //default - 30 seconds passed 
+       prevMillis = millis();
+       movementDetected = false;
+       attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), motionEvent, CHANGE);
+       delay(1000);
+    }
+  }
   readRain();
-  Serial.println();
-  readWaterLevel();
-  Serial.println();
-  delay(1000);
+  if((millis()-prevMillis2)>=30000){ //default 5 minutes passed 
+     prevMillis2 = millis();
+     readWaterLevel();               // read water level every 5 minutes
+     delay(1000);
+  }
+  if (interCom.available() > 0) {
+    String request = interCom.readStringUntil('\n');
+    if (request == "DataFetch") {
+      sendDataArray();
+    }
+  }
 }
