@@ -1,14 +1,11 @@
 #include "src/BattSense/INA219.h"
 #include "src/BattSense/SystemConfig.h"
+#include <TinyGPS.h>
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
 
 #define DEBUG
-#define DEBUG_BAT
-#define DEBUG_ACCEL
-#define DEBUG_GPS
-#define SLEEP_INTERRUPT
 #define GPS_Switch PA0
 
 TwoWire i2cPort(ACSIP_SDA, ACSIP_SCL);
@@ -23,10 +20,11 @@ byte ModbusCommand[2][11] = {
      0x95}}; // Set brush interval to 255 mins
 
 //#define DEBUG
+TinyGPS gps;
 Adafruit_MPU6050 mpu;
-HardwareSerial gpsSensor(P10, PC1);     // gps
+HardwareSerial gpsSensor(PA3, PC2);     // gps
 TwoWire _wire(PB7, PB6);                 // accelerometer
-HardwareSerial interCom(PD2, PC12)
+HardwareSerial interCom(PD2, PC12);
 
 float totAccumulation;
 uint16_t waitingTime;                                // window waiting time for on-motion event
@@ -47,7 +45,7 @@ const long checkupTime = 3600000;
 const long deviceSleepTime = 300000;
 unsigned long lastCheckupTime = 0;
 const int maxArraySize = 10; 
-float receivedData[maxArraySize];
+int receivedData[maxArraySize];
 
 void readGPS() ;
 void deviceWakeInit();
@@ -111,7 +109,6 @@ void readBatt() {
   battlevel = Battery.voltage;
   solarCharging = !ChargingStatus;
 }
-
 
 void readGPS() {
   Serial.println("[SYSTEM] Reading GPS Location");
@@ -185,13 +182,14 @@ void deviceSleep(){
   Serial.println("[SYSTEM] Device Sleeping...");
   delay(deviceSleepTime);
   Serial.println("\n[SYSTEM] Device Wakeup!");
-  delay(50;)
+  delay(50);
   deviceWakeInit();
 }
 
 void setup() {
   Serial.begin(115200);
   delay(1000);
+  Serial.println("[MASTER] Device Setup ");
   interCom.begin(9600);
   delay(100);
   deviceWakeInit();
@@ -201,8 +199,8 @@ void parseDataArray() {
   int arrayIndex = 0;
 
   // Read until the end of the array or timeout
-  while (arrayIndex < maxArraySize && masterSerial.available()) {
-    receivedData[arrayIndex] = masterSerial.parseFloat();
+  while (arrayIndex < maxArraySize && interCom.available()) {
+    receivedData[arrayIndex] = interCom.parseFloat();
     arrayIndex++;
   }
 }
@@ -217,7 +215,7 @@ void processDataArray(int data[], int arraySize){
 }
 
 void loop() {
-
+  Serial.println("[SYSTEM] Inside Loop");
   unsigned long currentMillis = millis();
 
   if (currentMillis - lastCheckupTime >= checkupTime) {
@@ -228,12 +226,12 @@ void loop() {
     if(interCom.available()>0){
       parseDataArray();
     }
-    readBatt();
-    Serial.println();
-    readGPS();
-    Serial.println();
+    // readBatt();
+    // Serial.println();
+    // readGPS();
+    // Serial.println();
   }
-  int arraySize = sizeof(receivedData) / sizeof(receivedData[0]);
+  int arraySize = sizeof(receivedData) / sizeof(receivedData[0]); 
   processDataArray(receivedData, arraySize);
   delay(100);
   deviceSleep();

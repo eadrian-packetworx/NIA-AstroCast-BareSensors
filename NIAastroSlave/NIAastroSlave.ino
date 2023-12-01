@@ -1,4 +1,4 @@
-
+ 
 #include <Adafruit_MPU6050.h>
 #include <Adafruit_Sensor.h>
 #include <Wire.h>
@@ -38,9 +38,7 @@ float currentAcc, RInt;
 uint16_t waterLevel, waterLevelOffset = 0;
 
 uint8_t waterCriticalHighReadings = 0,waterCriticalLowReadings = 0;
-uint16_t waterHighThreshold           = 70,            // Water level sensor settings
-         waterCriticalHighThreshold   = 100, 
-         waterLowThreshold            = 50,
+uint16_t waterCriticalHighThreshold   = 100,
          waterCriticalLowThreshold    = 20;
 bool movementDetected                 = false;
 uint16_t motionThreshold              = 5;             // Accelerometer Motion Sensitivity
@@ -268,7 +266,7 @@ void decodeSerial() {
         Serial.print("Rain Intensity: ");
         Serial.println(RInt);
       }
-      
+
       gotData = false;
     }
     if (message == "EventAcc" && !flag2) {
@@ -330,11 +328,11 @@ void readRain() {
 
 void sendDataArray() {
   // Replace this function with your actual sensor reading code
-  sensorData[0] = waterLevel; //Water Level
-  sensorData[1] = waterCriticalHighReadings; //Water High Counter
-  sensorData[2] = waterCriticalLowReadings; //Water Low Counter
-  sensorData[3] = totAccumulation; //Rain Total Accumulation
-  sensorData[4] = movementCount; //Motion Total Interrupts
+  sensorData[0] = 1111;//waterLevel; //Water Level
+  sensorData[1] = 2222;//waterCriticalHighReadings; //Water High Counter
+  sensorData[2] = 3333;//waterCriticalLowReadings; //Water Low Counter
+  sensorData[3] = 4444;//totAccumulation; //Rain Total Accumulation
+  sensorData[4] = 5555;//movementCount; //Motion Total Interrupts
 
   // Send the sensor data array as a string to the master
   for (int i = 0; i < maxArraySize; i++) {
@@ -356,23 +354,24 @@ void setup() {
 }
 
 void loop() {
-  if(movementDetected){
-     if((millis()-prevMillis)>=debounceTime){ //default - 30 seconds passed 
-       prevMillis = millis();
-       movementDetected = false;
-       attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), motionEvent, CHANGE);
-       delay(1000);
-    }
-  }
-  readRain();
-  if((millis()-prevMillis2)>=30000){ //default 5 minutes passed 
-     prevMillis2 = millis();
-     readWaterLevel();               // read water level every 5 minutes
-     delay(1000);
-  }
+  // if(movementDetected){
+  //    if((millis()-prevMillis)>=debounceTime){ //default - 30 seconds passed 
+  //      prevMillis = millis();
+  //      movementDetected = false;
+  //      attachInterrupt(digitalPinToInterrupt(INTERRUPT_PIN), motionEvent, CHANGE);
+  //      delay(1000);
+  //   }
+  // }
+  // readRain();
+  // if((millis()-prevMillis2)>=30000){ //default 5 minutes passed 
+  //    prevMillis2 = millis();
+  //    readWaterLevel();               // read water level every 5 minutes
+  //    delay(1000);
+  // }
   if (interCom.available() > 0) {
     String request = interCom.readStringUntil('\n');
     if (request == "DataFetch") {
+      Serial.println("fetch data requested by master");
       sendDataArray();
     }
   }
