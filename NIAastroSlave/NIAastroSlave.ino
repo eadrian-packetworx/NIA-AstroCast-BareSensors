@@ -97,7 +97,7 @@ void motionEvent(){
   detachInterrupt(INTERRUPT_PIN); 
   return;
   }
-void startupConfig() {
+void q() {
   #ifdef DEBUG
     Serial.println();
     Serial.println(F("[SYSTEM] Initializing Device Configurations."));
@@ -348,9 +348,9 @@ void sendDataArray() {
 }
 
 void setup() {
-  Serial.begin(115200);
-  interCom.begin(9600); 
-  startupConfig();
+  //Serial.begin(115200);
+  interCom.begin(115200); 
+  //startupConfig();
 }
 
 void loop() {
@@ -369,10 +369,12 @@ void loop() {
   //    delay(1000);
   // }
   if (interCom.available() > 0) {
+
     String request = interCom.readStringUntil('\n');
     if (request == "DataFetch") {
-      Serial.println("fetch data requested by master");
-      sendDataArray();
+      interCom.print("TITIW"); 
+      //sendDataArray();
     }
   }
+  delay(100);
 }

@@ -14,11 +14,6 @@ INA219 BatterySense(0X40);
 PowerMonitor Battery;
 PowerMonitor Solar;
 
-byte ModbusCommand[2][11] = {
-    {0x01, 0x03, 0x00, 0x04, 0x00, 0x01, 0xc5, 0xcb}, // Get temperature and DO
-    {0x01, 0x10, 0x20, 0x00, 0x00, 0x01, 0x02, 0x00, 0xFF, 0x07,
-     0x95}}; // Set brush interval to 255 mins
-
 //#define DEBUG
 TinyGPS gps;
 Adafruit_MPU6050 mpu;
@@ -46,10 +41,10 @@ const long deviceSleepTime = 300000;
 unsigned long lastCheckupTime = 0;
 const int maxArraySize = 10; 
 int receivedData[maxArraySize];
+volatile bool isDataReceived = false;
 
 void readGPS() ;
 void deviceWakeInit();
-
 
 void deviceWakeInit() {
   #ifdef DEBUG
@@ -187,10 +182,7 @@ void deviceSleep(){
 }
 
 void setup() {
-  Serial.begin(115200);
-  delay(1000);
-  Serial.println("[MASTER] Device Setup ");
-  interCom.begin(9600);
+  interCom.begin(115200);
   delay(100);
   deviceWakeInit();
 }
@@ -215,24 +207,42 @@ void processDataArray(int data[], int arraySize){
 }
 
 void loop() {
-  Serial.println("[SYSTEM] Inside Loop");
-  unsigned long currentMillis = millis();
 
-  if (currentMillis - lastCheckupTime >= checkupTime) {
-    lastCheckupTime = currentMillis;
-    Serial.println("[SYSTEM] Fetching Sensor Data");
-    interCom.println("DataFetch");
-    delay(50);
-    if(interCom.available()>0){
-      parseDataArray();
-    }
-    // readBatt();
-    // Serial.println();
-    // readGPS();
-    // Serial.println();
-  }
-  int arraySize = sizeof(receivedData) / sizeof(receivedData[0]); 
-  processDataArray(receivedData, arraySize);
-  delay(100);
-  deviceSleep();
+  
+//  unsigned long currentMillis = millis();
+//  if (currentMillis - lastCheckupTime >= checkupTime) {
+//    
+//    lastCheckupTime = currentMillis;
+//    Serial.println("[SYSTEM] Fetching Sensor Data");
+//    interCom.println("DataFetch");
+//    delay(50);
+//    if(interCom.available()>0){
+//      parseDataArray();
+//      isDataReceived = true;
+//    }
+//    // readBatt();
+//    // Serial.println();
+//    // readGPS();
+//    // Serial.println();
+//  }
+//  Serial.println();
+//  Serial.println("[SYSTEM] Fetching Sensor Data");
+
+  interCom.println("DataFetch");
+  interCom.println("");
+  delay(1000); // Wait for the response
+  if(interCom.available()>0){
+    char c = interCom.read(); // receive byte as a character
+    interCom.print("ReceivedData: ");
+    interCom.println(c);         
+    //parseDataArray();
+  } 
+
+//  if(isDataReceived){
+//    int arraySize = sizeof(receivedData) / sizeof(receivedData[0]); 
+//    processDataArray(receivedData, arraySize);
+//    isDataReceived = false;
+//  }
+delay(5000);
+  //deviceSleep();
 }
